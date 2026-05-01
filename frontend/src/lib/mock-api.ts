@@ -1,14 +1,19 @@
-export type DeploymentStatus = 'pending' | 'building' | 'deploying' | 'running' | 'failed';
+export type DeploymentStatus =
+  | 'pending'
+  | 'building'
+  | 'deploying'
+  | 'running'
+  | 'failed'
 
 export interface Deployment {
-  id: string;
-  name: string;
-  gitUrl?: string;
-  status: DeploymentStatus;
-  imageTag?: string;
-  liveUrl?: string;
-  createdAt: Date;
-  logs: string[];
+  id: string
+  name: string
+  gitUrl?: string
+  status: DeploymentStatus
+  imageTag?: string
+  liveUrl?: string
+  createdAt: Date
+  logs: string[]
 }
 
 const deployments: Deployment[] = [
@@ -44,35 +49,37 @@ const deployments: Deployment[] = [
       '[3/3] Building application...',
     ],
   },
-];
+]
 
-let nextId = 3;
-const logIntervals: Map<string, NodeJS.Timeout> = new Map();
-const statusTimeouts: Map<string, NodeJS.Timeout> = new Map();
+let nextId = 3
+const logIntervals: Map<string, NodeJS.Timeout> = new Map()
+const statusTimeouts: Map<string, NodeJS.Timeout> = new Map()
 
 function generateId(): string {
-  return Math.random().toString(36).substring(2, 9);
+  return Math.random().toString(36).substring(2, 9)
 }
 
 function getNameFromGitUrl(gitUrl: string): string {
-  const match = gitUrl.match(/\/([^/]+?)(?:\.git)?$/);
-  return match ? match[1] : `deployment-${nextId}`;
+  const match = gitUrl.match(/\/([^/]+?)(?:\.git)?$/)
+  return match ? match[1] : `deployment-${nextId}`
 }
 
 export async function getDeployments(): Promise<Deployment[]> {
-  await new Promise((r) => setTimeout(r, 300));
-  return [...deployments];
+  await new Promise((r) => setTimeout(r, 300))
+  return [...deployments]
 }
 
-export async function getDeployment(id: string): Promise<Deployment | undefined> {
-  await new Promise((r) => setTimeout(r, 200));
-  return deployments.find((d) => d.id === id);
+export async function getDeployment(
+  id: string,
+): Promise<Deployment | undefined> {
+  await new Promise((r) => setTimeout(r, 200))
+  return deployments.find((d) => d.id === id)
 }
 
 export async function createDeployment(gitUrl: string): Promise<Deployment> {
-  await new Promise((r) => setTimeout(r, 500));
+  await new Promise((r) => setTimeout(r, 500))
 
-  const name = getNameFromGitUrl(gitUrl);
+  const name = getNameFromGitUrl(gitUrl)
   const deployment: Deployment = {
     id: String(nextId++),
     name,
@@ -80,56 +87,68 @@ export async function createDeployment(gitUrl: string): Promise<Deployment> {
     status: 'pending',
     createdAt: new Date(),
     logs: ['[1/3] Cloning repository...'],
-  };
+  }
 
-  deployments.unshift(deployment);
-  simulateDeployment(deployment.id, gitUrl);
-  return deployment;
+  deployments.unshift(deployment)
+  simulateDeployment(deployment.id, gitUrl)
+  return deployment
 }
 
 function simulateDeployment(deploymentId: string, gitUrl: string): void {
-  const statusSequence: DeploymentStatus[] = ['building', 'deploying', 'running'];
-  let step = 0;
+  const statusSequence: DeploymentStatus[] = [
+    'building',
+    'deploying',
+    'running',
+  ]
+  let step = 0
 
   const statusTimeout = setTimeout(() => {
     if (step >= statusSequence.length) {
-      const dep = deployments.find((d) => d.id === deploymentId);
+      const dep = deployments.find((d) => d.id === deploymentId)
       if (dep) {
-        dep.status = 'running';
-        dep.imageTag = `${dep.name}:v${Date.now()}`;
-        dep.liveUrl = `http://localhost:${3000 + Math.floor(Math.random() * 1000)}`;
+        dep.status = 'running'
+        dep.imageTag = `${dep.name}:v${Date.now()}`
+        dep.liveUrl = `http://localhost:${3000 + Math.floor(Math.random() * 1000)}`
       }
-      return;
+      return
     }
 
-    const dep = deployments.find((d) => d.id === deploymentId);
-    if (!dep) return;
+    const dep = deployments.find((d) => d.id === deploymentId)
+    if (!dep) return
 
-    dep.status = statusSequence[step];
+    dep.status = statusSequence[step]
 
     const logMessages: Record<DeploymentStatus, string[]> = {
       pending: ['[1/3] Cloning repository...'],
-      building: ['[2/3] Installing dependencies...', '[3/3] Building application...'],
-      deploying: ['[4/4] Building Docker image...', '[5/4] Pushing to registry...', '[6/4] Starting container...'],
+      building: [
+        '[2/3] Installing dependencies...',
+        '[3/3] Building application...',
+      ],
+      deploying: [
+        '[4/4] Building Docker image...',
+        '[5/4] Pushing to registry...',
+        '[6/4] Starting container...',
+      ],
       running: ['✓ Deployment ready'],
       failed: ['✗ Build failed'],
-    };
+    }
 
-    dep.logs.push(...logMessages[dep.status]);
+    dep.logs.push(...logMessages[dep.status])
 
-    step++;
-    statusTimeouts.set(deploymentId, setTimeout(() => simulateDeployment(deploymentId, gitUrl), 2000));
-  }, 1500);
+    step++
+    statusTimeouts.set(
+      deploymentId,
+      setTimeout(() => simulateDeployment(deploymentId, gitUrl), 2000),
+    )
+  }, 1500)
 
-  statusTimeouts.set(deploymentId, statusTimeout);
+  statusTimeouts.set(deploymentId, statusTimeout)
 }
 
-export async function createDeploymentUpload(
-  file: File
-): Promise<Deployment> {
-  await new Promise((r) => setTimeout(r, 500));
+export async function createDeploymentUpload(file: File): Promise<Deployment> {
+  await new Promise((r) => setTimeout(r, 500))
 
-  const name = file.name.replace(/\.[^/.]+$/, '');
+  const name = file.name.replace(/\.[^/.]+$/, '')
   const deployment: Deployment = {
     id: String(nextId++),
     name,
@@ -137,39 +156,39 @@ export async function createDeploymentUpload(
     status: 'pending',
     createdAt: new Date(),
     logs: ['[1/3] Reading project files...'],
-  };
+  }
 
-  deployments.unshift(deployment);
-  simulateDeployment(deployment.id, 'upload');
-  return deployment;
+  deployments.unshift(deployment)
+  simulateDeployment(deployment.id, 'upload')
+  return deployment
 }
 
 export function subscribeToLogs(
   deploymentId: string,
-  onLog: (log: string) => void
+  onLog: (log: string) => void,
 ): () => void {
   const interval = setInterval(() => {
-    const dep = deployments.find((d) => d.id === deploymentId);
+    const dep = deployments.find((d) => d.id === deploymentId)
     if (dep && dep.logs.length > 0) {
-      onLog(dep.logs[dep.logs.length - 1]);
+      onLog(dep.logs[dep.logs.length - 1])
     }
-  }, 500);
+  }, 500)
 
-  logIntervals.set(`${deploymentId}-${Date.now()}`, interval);
+  logIntervals.set(`${deploymentId}-${Date.now()}`, interval)
 
   return () => {
-    clearInterval(interval);
-  };
+    clearInterval(interval)
+  }
 }
 
 export function getLogs(deploymentId: string): string[] {
-  const dep = deployments.find((d) => d.id === deploymentId);
-  return dep?.logs || [];
+  const dep = deployments.find((d) => d.id === deploymentId)
+  return dep?.logs || []
 }
 
 export function clearMocks(): void {
-  logIntervals.forEach(clearInterval);
-  statusTimeouts.forEach(clearTimeout);
-  deployments.length = 0;
-  nextId = 3;
+  logIntervals.forEach(clearInterval)
+  statusTimeouts.forEach(clearTimeout)
+  deployments.length = 0
+  nextId = 3
 }

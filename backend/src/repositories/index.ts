@@ -1,0 +1,1 @@
+export { DeploymentRepository, deploymentRepository } from './deployment.repository.js';
