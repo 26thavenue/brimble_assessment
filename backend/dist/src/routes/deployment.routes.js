@@ -1,85 +1,79 @@
 import { Router } from 'express';
-import { z } from 'zod';
+import multer from 'multer';
+import * as path from 'path';
+import * as os from 'os';
+import * as fs from 'fs';
+import { deploymentController } from '../controllers/index.js';
+import { createDeploymentSchema, updateDeploymentSchema } from '../validators/index.js';
+import { asyncHandler, validateBody } from '../middleware/index.js';
 import { deploymentService } from '../services/index.js';
-import { asyncHandler } from '../middleware/index.js';
-const createDeploymentSchema = z.object({
-    gitUrl: z.string().url(),
-    name: z.string().optional(),
-});
-const updateDeploymentSchema = z.object({
-    status: z.enum(['pending', 'building', 'deploying', 'running', 'failed']).optional(),
-    imageTag: z.string().optional(),
-    liveUrl: z.string().url().optional(),
-});
-function parseIntsafe(value) {
-    const parsed = Number(value);
-    return isNaN(parsed) ? null : parsed;
+import AdmZip from 'adm-zip';
+const uploadDir = path.join(os.tmpdir(), 'brimble-uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
 }
+const storage = multer.diskStorage({
+    destination: uploadDir,
+    filename: (_req, file, cb) => {
+        cb(null, `${Date.now()}-${file.originalname}`);
+    },
+});
+const upload = multer({
+    storage,
+    limits: { fileSize: 50 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+        const allowed = ['.zip', '.tar.gz', '.tgz'];
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (allowed.includes(ext) || file.mimetype.includes('zip') || file.mimetype.includes('tar')) {
+            cb(null, true);
+        }
+        else {
+            cb(new Error('Only .zip and .tar.gz files are allowed'));
+        }
+    },
+});
 export function createDeploymentRouter() {
     const router = Router();
-    router.get('/', asyncHandler(async (req, res) => {
-        const deployments = deploymentService.getAllDeployments();
-        res.json(deployments);
-    }));
-    router.get('/:id', asyncHandler(async (req, res) => {
-        const id = req.params.id;
-        const deployment = deploymentService.getDeploymentById(id);
-        if (!deployment) {
-            res.status(404).json({ error: 'Deployment not found' });
+    router.get('/', asyncHandler(deploymentController.getAllDeployments));
+    router.get('/:id', asyncHandler(deploymentController.getDeploymentById));
+    router.post('/', validateBody(createDeploymentSchema), asyncHandler(deploymentController.createDeployment));
+    router.post('/upload', upload.single('project'), asyncHandler(async (req, res) => {
+        if (!req.file) {
+            res.status(400).json({ error: 'No file uploaded' });
             return;
         }
-        res.json(deployment);
-    }));
-    router.post('/', asyncHandler(async (req, res) => {
-        const result = createDeploymentSchema.safeParse(req.body);
-        if (!result.success) {
-            res.status(400).json({
-                error: 'Validation failed',
-                details: result.error.issues,
-            });
-            return;
+        const name = req.body.name || '';
+        const archivePath = req.file.path;
+        const extractDir = path.join(uploadDir, `extract-${Date.now()}`);
+        try {
+            if (req.file.mimetype.includes('zip') || req.file.originalname.endsWith('.zip')) {
+                const zip = new AdmZip(archivePath);
+                zip.extractAllTo(extractDir, true);
+            }
+            else {
+                res.status(400).json({ error: 'tar.gz extraction not yet supported, use .zip' });
+                return;
+            }
+            const contents = fs.readdirSync(extractDir);
+            const sourceDir = contents.length === 1 && fs.statSync(path.join(extractDir, contents[0])).isDirectory()
+                ? path.join(extractDir, contents[0])
+                : extractDir;
+            const deployment = await deploymentService.createDeploymentFromArchive(sourceDir, name);
+            res.status(201).json(deployment);
         }
-        const deployment = deploymentService.createDeployment({
-            gitUrl: result.data.gitUrl,
-            name: result.data.name || '',
-        });
-        res.status(201).json(deployment);
-    }));
-    router.patch('/:id', asyncHandler(async (req, res) => {
-        const id = req.params.id;
-        const result = updateDeploymentSchema.safeParse(req.body);
-        if (!result.success) {
-            res.status(400).json({
-                error: 'Validation failed',
-                details: result.error.issues,
-            });
-            return;
+        catch (error) {
+            res.status(500).json({ error: `Failed to process upload: ${error.message}` });
         }
-        const deployment = deploymentService.updateDeploymentStatus(id, result.data.status, result.data.imageTag, result.data.liveUrl);
-        if (!deployment) {
-            res.status(404).json({ error: 'Deployment not found' });
-            return;
+        finally {
+            fs.rmSync(archivePath, { force: true });
+            fs.rmSync(extractDir, { recursive: true, force: true });
         }
-        res.json(deployment);
     }));
-    router.delete('/:id', asyncHandler(async (req, res) => {
-        const id = req.params.id;
-        const deleted = deploymentService.deleteDeployment(id);
-        if (!deleted) {
-            res.status(404).json({ error: 'Deployment not found' });
-            return;
-        }
-        res.status(204).send();
-    }));
-    router.get('/:id/logs', asyncHandler(async (req, res) => {
-        const id = req.params.id;
-        const deployment = deploymentService.getDeploymentById(id);
-        if (!deployment) {
-            res.status(404).json({ error: 'Deployment not found' });
-            return;
-        }
-        const logs = deploymentService.getDeploymentLogs(id);
-        res.json(logs);
-    }));
+    router.patch('/:id', validateBody(updateDeploymentSchema), asyncHandler(deploymentController.updateDeployment));
+    router.post('/:id/rollback', asyncHandler(deploymentController.rollbackDeployment));
+    router.post('/:id/redeploy', asyncHandler(deploymentController.redeployDeployment));
+    router.delete('/:id', asyncHandler(deploymentController.deleteDeployment));
+    router.get('/:id/logs', asyncHandler(deploymentController.getDeploymentLogs));
+    router.get('/:id/logs/stream', asyncHandler(deploymentController.streamLogs));
     return router;
 }

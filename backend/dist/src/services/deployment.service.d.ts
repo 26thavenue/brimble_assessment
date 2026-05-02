@@ -3,6 +3,7 @@ export declare class DeploymentService {
     getAllDeployments(): Deployment[];
     getDeploymentById(id: string): Deployment | null;
     createDeployment(input: CreateDeploymentInput): Deployment;
+    createDeploymentFromArchive(archivePath: string, name: string): Promise<Deployment>;
     updateDeploymentStatus(id: string, status: DeploymentStatus, imageTag?: string, liveUrl?: string): Deployment | null;
     getDeploymentLogs(deploymentId: string): {
         id: number;
@@ -11,7 +12,10 @@ export declare class DeploymentService {
         message: string;
     }[];
     deleteDeployment(id: string): boolean;
+    rollbackDeployment(id: string): Promise<Deployment | null>;
+    redeployDeployment(id: string): Promise<Deployment | null>;
     private extractNameFromGitUrl;
-    private simulateDeploymentProcess;
+    private runPipeline;
+    private runPipelineFromArchive;
 }
 export declare const deploymentService: DeploymentService;

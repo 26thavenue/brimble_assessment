@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DeploymentService } from '../deployment.service.js';
 import { deploymentRepository } from '../../repositories/index.js';
+import { pipelineService } from '../../services/pipeline.service.js';
 import type { DeploymentStatus } from '../../types/index.js';
 
-// Mock the deploymentRepository module
 vi.mock('../../repositories/index.js', () => ({
   deploymentRepository: {
     findAll: vi.fn(),
@@ -16,14 +16,29 @@ vi.mock('../../repositories/index.js', () => ({
   },
 }));
 
+vi.mock('../../services/pipeline.service.js', () => ({
+  pipelineService: {
+    buildFromGitUrl: vi.fn(),
+    buildFromDirectory: vi.fn(),
+    runContainer: vi.fn(),
+    stopContainer: vi.fn(),
+  },
+}));
+
+vi.mock('../../services/log-emitter.service.js', () => ({
+  logEmitterService: {
+    emitLog: vi.fn(),
+    subscribe: vi.fn(() => () => {}),
+    getExistingLogs: vi.fn(() => []),
+  },
+}));
+
 describe('DeploymentService', () => {
   let service: DeploymentService;
 
   beforeEach(() => {
     vi.clearAllMocks();
     service = new DeploymentService();
-    // Prevent simulateDeploymentProcess from actually waiting in tests
-    vi.spyOn(service as any, 'simulateDeploymentProcess').mockImplementation(async () => {});
   });
 
   describe('getAllDeployments', () => {
@@ -54,6 +69,8 @@ describe('DeploymentService', () => {
     it('should extract name from gitUrl if not provided', () => {
       const mockDeployment = { id: '1', name: 'my-repo', gitUrl: 'https://github.com/user/my-repo.git' };
       vi.mocked(deploymentRepository.create).mockReturnValue(mockDeployment as any);
+      vi.mocked(pipelineService.buildFromGitUrl).mockResolvedValue({ imageTag: 'test:v1' });
+      vi.mocked(pipelineService.runContainer).mockResolvedValue({ port: 8080, liveUrl: '/deploy/1' });
 
       const result = service.createDeployment({ gitUrl: 'https://github.com/user/my-repo.git', name: '' });
 
@@ -67,6 +84,8 @@ describe('DeploymentService', () => {
     it('should use provided name over gitUrl extraction', () => {
       const mockDeployment = { id: '1', name: 'custom-name', gitUrl: 'https://github.com/user/my-repo.git' };
       vi.mocked(deploymentRepository.create).mockReturnValue(mockDeployment as any);
+      vi.mocked(pipelineService.buildFromGitUrl).mockResolvedValue({ imageTag: 'test:v1' });
+      vi.mocked(pipelineService.runContainer).mockResolvedValue({ port: 8080, liveUrl: '/deploy/1' });
 
       const result = service.createDeployment({ gitUrl: 'https://github.com/user/my-repo.git', name: 'custom-name' });
 
@@ -78,7 +97,7 @@ describe('DeploymentService', () => {
   });
 
   describe('updateDeploymentStatus', () => {
-    it('should update status and add a log entry', () => {
+    it('should update status', () => {
       const mockDeployment = { id: '1', status: 'building' };
       vi.mocked(deploymentRepository.update).mockReturnValue(mockDeployment as any);
 
@@ -89,14 +108,15 @@ describe('DeploymentService', () => {
         imageTag: undefined,
         liveUrl: undefined,
       });
-      expect(deploymentRepository.addLog).toHaveBeenCalledWith('1', '[BUILDING] Status updated to building');
       expect(result).toEqual(mockDeployment);
     });
   });
 
   describe('deleteDeployment', () => {
     it('should call repository delete and return result', () => {
+      vi.mocked(deploymentRepository.findById).mockReturnValue({ id: '1', status: 'running', containerId: 'abc123' } as any);
       vi.mocked(deploymentRepository.delete).mockReturnValue(true);
+      vi.mocked(pipelineService.stopContainer).mockResolvedValue(undefined);
 
       const result = service.deleteDeployment('1');
 

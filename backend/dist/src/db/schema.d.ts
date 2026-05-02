@@ -116,6 +116,42 @@ export declare const deployments: import("drizzle-orm/sqlite-core").SQLiteTableW
         }, {}, {
             length: number | undefined;
         }>;
+        containerId: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "containerId";
+            tableName: "deployments";
+            dataType: "string";
+            columnType: "SQLiteText";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: number | undefined;
+        }>;
+        port: import("drizzle-orm/sqlite-core").SQLiteColumn<{
+            name: "port";
+            tableName: "deployments";
+            dataType: "number";
+            columnType: "SQLiteInteger";
+            data: number;
+            driverParam: number;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
         createdAt: import("drizzle-orm/sqlite-core").SQLiteColumn<{
             name: "createdAt";
             tableName: "deployments";

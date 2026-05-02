@@ -6,6 +6,8 @@ export interface Deployment {
     status: DeploymentStatus;
     imageTag: string | null;
     liveUrl: string | null;
+    containerId: string | null;
+    port: number | null;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -17,10 +19,12 @@ export interface DeploymentLog {
 }
 export interface CreateDeploymentInput {
     name: string;
-    gitUrl: string;
+    gitUrl?: string;
 }
 export interface UpdateDeploymentInput {
     status?: DeploymentStatus;
     imageTag?: string;
     liveUrl?: string;
+    containerId?: string | null;
+    port?: number | null;
 }

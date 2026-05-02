@@ -1,4 +1,6 @@
 import { deploymentRepository } from '../repositories/index.js';
+import { pipelineService } from './pipeline.service.js';
+import { logEmitterService } from './log-emitter.service.js';
 import type { Deployment, DeploymentStatus, CreateDeploymentInput } from '../types/index.js';
 
 export class DeploymentService {
@@ -11,14 +13,29 @@ export class DeploymentService {
   }
 
   createDeployment(input: CreateDeploymentInput): Deployment {
-    const name = input.name || this.extractNameFromGitUrl(input.gitUrl) || 'app';
+    const name = input.name || (input.gitUrl ? this.extractNameFromGitUrl(input.gitUrl) : null) || 'app';
     
     const deployment = deploymentRepository.create({
       name,
-      gitUrl: input.gitUrl,
+      gitUrl: input.gitUrl || '',
     });
     
-    this.simulateDeploymentProcess(deployment.id);
+    if (input.gitUrl) {
+      this.runPipeline(deployment.id, input.gitUrl);
+    }
+    
+    return deployment;
+  }
+
+  async createDeploymentFromArchive(archivePath: string, name: string): Promise<Deployment> {
+    const deploymentName = name || `upload-${Date.now()}`;
+    
+    const deployment = deploymentRepository.create({
+      name: deploymentName,
+      gitUrl: '',
+    });
+    
+    await this.runPipelineFromArchive(deployment.id, archivePath);
     
     return deployment;
   }
@@ -31,7 +48,7 @@ export class DeploymentService {
     });
     
     if (deployment) {
-      deploymentRepository.addLog(id, `[${status.toUpperCase()}] Status updated to ${status}`);
+      logEmitterService.emitLog(id, `[${status.toUpperCase()}] Status updated to ${status}`);
     }
     
     return deployment;
@@ -42,7 +59,91 @@ export class DeploymentService {
   }
 
   deleteDeployment(id: string): boolean {
+    const deployment = deploymentRepository.findById(id);
+    if (!deployment) return false;
+
+    if (deployment.containerId || deployment.status === 'running') {
+      pipelineService.stopContainer(id).catch((err) => {
+        logEmitterService.emitLog(id, `[ERROR] Failed to stop container during delete: ${err.message}`);
+      });
+    }
+    
     return deploymentRepository.delete(id);
+  }
+
+  async rollbackDeployment(id: string): Promise<Deployment | null> {
+    const deployment = deploymentRepository.findById(id);
+    if (!deployment) return null;
+
+    if (!deployment.imageTag) {
+      logEmitterService.emitLog(id, '[ROLLBACK] No image tag available to rollback to');
+      return null;
+    }
+
+    logEmitterService.emitLog(id, `[ROLLBACK] Rolling back to image: ${deployment.imageTag}`);
+    
+    if (deployment.containerId) {
+      await pipelineService.stopContainer(id);
+    }
+
+    try {
+      this.updateDeploymentStatus(id, 'deploying');
+      const { liveUrl } = await pipelineService.runContainer(deployment.imageTag, id);
+      
+      const updated = this.updateDeploymentStatus(id, 'running', deployment.imageTag, liveUrl);
+      logEmitterService.emitLog(id, `[ROLLBACK] Rollback complete, now running ${deployment.imageTag}`);
+      return updated;
+    } catch (error) {
+      this.updateDeploymentStatus(id, 'failed');
+      logEmitterService.emitLog(id, `[ROLLBACK] Rollback failed: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  async redeployDeployment(id: string): Promise<Deployment | null> {
+    const deployment = deploymentRepository.findById(id);
+    if (!deployment) return null;
+
+    if (deployment.status === 'running' && deployment.imageTag) {
+      logEmitterService.emitLog(id, `[REDEPLOY] Redeploying with existing image: ${deployment.imageTag}`);
+      
+      if (deployment.containerId) {
+        await pipelineService.stopContainer(id);
+      }
+
+      try {
+        this.updateDeploymentStatus(id, 'deploying');
+        const { liveUrl } = await pipelineService.runContainer(deployment.imageTag, id);
+        
+        const updated = this.updateDeploymentStatus(id, 'running', deployment.imageTag, liveUrl);
+        return updated;
+      } catch (error) {
+        this.updateDeploymentStatus(id, 'failed');
+        logEmitterService.emitLog(id, `[REDEPLOY] Redeploy failed: ${(error as Error).message}`);
+        return null;
+      }
+    }
+
+    if (deployment.gitUrl) {
+      logEmitterService.emitLog(id, '[REDEPLOY] Rebuilding from Git URL');
+      try {
+        this.updateDeploymentStatus(id, 'building');
+        const { imageTag } = await pipelineService.buildFromGitUrl(deployment.gitUrl, id);
+        
+        this.updateDeploymentStatus(id, 'deploying', imageTag);
+        const { liveUrl } = await pipelineService.runContainer(imageTag, id);
+        
+        const updated = this.updateDeploymentStatus(id, 'running', imageTag, liveUrl);
+        return updated;
+      } catch (error) {
+        this.updateDeploymentStatus(id, 'failed');
+        logEmitterService.emitLog(id, `[REDEPLOY] Rebuild failed: ${(error as Error).message}`);
+        return null;
+      }
+    }
+
+    logEmitterService.emitLog(id, '[REDEPLOY] No source available for redeploy');
+    return null;
   }
 
   private extractNameFromGitUrl(gitUrl: string): string | null {
@@ -50,17 +151,37 @@ export class DeploymentService {
     return match ? match[1] : null;
   }
 
-  private async simulateDeploymentProcess(deploymentId: string) {
-    const steps: DeploymentStatus[] = ['building', 'deploying', 'running'];
-    
-    for (let i = 0; i < steps.length; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+  private async runPipeline(deploymentId: string, gitUrl: string) {
+    try {
+      this.updateDeploymentStatus(deploymentId, 'building');
+
+      const { imageTag } = await pipelineService.buildFromGitUrl(gitUrl, deploymentId);
       
-      const status = steps[i];
-      const imageTag = status === 'deploying' ? `app:v${Date.now()}` : undefined;
-      const liveUrl = status === 'running' ? `http://localhost:${3000 + Math.floor(Math.random() * 1000)}` : undefined;
+      this.updateDeploymentStatus(deploymentId, 'deploying', imageTag);
       
-      this.updateDeploymentStatus(deploymentId, status, imageTag || undefined, liveUrl || undefined);
+      const { liveUrl } = await pipelineService.runContainer(imageTag, deploymentId);
+      
+      this.updateDeploymentStatus(deploymentId, 'running', imageTag, liveUrl);
+    } catch (error) {
+      logEmitterService.emitLog(deploymentId, `[ERROR] Pipeline failed: ${(error as Error).message}`);
+      this.updateDeploymentStatus(deploymentId, 'failed');
+    }
+  }
+
+  private async runPipelineFromArchive(deploymentId: string, archivePath: string) {
+    try {
+      this.updateDeploymentStatus(deploymentId, 'building');
+
+      const { imageTag } = await pipelineService.buildFromDirectory(archivePath, deploymentId);
+      
+      this.updateDeploymentStatus(deploymentId, 'deploying', imageTag);
+      
+      const { liveUrl } = await pipelineService.runContainer(imageTag, deploymentId);
+      
+      this.updateDeploymentStatus(deploymentId, 'running', imageTag, liveUrl);
+    } catch (error) {
+      logEmitterService.emitLog(deploymentId, `[ERROR] Pipeline failed: ${(error as Error).message}`);
+      this.updateDeploymentStatus(deploymentId, 'failed');
     }
   }
 }

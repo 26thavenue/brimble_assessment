@@ -5,7 +5,7 @@ import { closeDb } from './src/db/index.js';
 import { errorHandler, notFoundHandler } from './src/middleware/index.js';
 import { createDeploymentRouter, createHealthRouter } from './src/routes/index.js';
 const app = express();
-app.use(cors());
+app.use(cors({ origin: config.CORS_ORIGIN || '*' }));
 app.use(express.json());
 app.use('/health', createHealthRouter());
 app.use('/api/deployments', createDeploymentRouter());
@@ -13,7 +13,6 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 async function start() {
     try {
-        // With better-sqlite3, the DB is already initialized synchronously in src/db/index.ts
         console.log('Database connected successfully');
         app.listen(config.PORT, () => {
             console.log(`Server running on port ${config.PORT}`);

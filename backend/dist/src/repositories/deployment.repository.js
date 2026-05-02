@@ -33,6 +33,10 @@ export class DeploymentRepository {
             updateData.imageTag = input.imageTag || null;
         if (input.liveUrl !== undefined)
             updateData.liveUrl = input.liveUrl || null;
+        if (input.containerId !== undefined)
+            updateData.containerId = input.containerId || null;
+        if (input.port !== undefined)
+            updateData.port = input.port || null;
         if (Object.keys(updateData).length === 0)
             return existing;
         updateData.updatedAt = new Date();
@@ -59,11 +63,16 @@ export class DeploymentRepository {
     }
     addLog(deploymentId, message) {
         const now = new Date();
-        const result = db.insert(deploymentLogs).values({
+        db.insert(deploymentLogs).values({
             deploymentId,
             message,
             createdAt: now,
-        }).returning().get();
+        }).run();
+        const result = db.select()
+            .from(deploymentLogs)
+            .where(eq(deploymentLogs.deploymentId, deploymentId))
+            .orderBy(desc(deploymentLogs.id))
+            .get();
         return result;
     }
 }

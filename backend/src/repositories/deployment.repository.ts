@@ -38,6 +38,8 @@ export class DeploymentRepository {
     if (input.status !== undefined) updateData.status = input.status;
     if (input.imageTag !== undefined) updateData.imageTag = input.imageTag || null;
     if (input.liveUrl !== undefined) updateData.liveUrl = input.liveUrl || null;
+    if (input.containerId !== undefined) updateData.containerId = input.containerId || null;
+    if (input.port !== undefined) updateData.port = input.port || null;
     
     if (Object.keys(updateData).length === 0) return existing;
     

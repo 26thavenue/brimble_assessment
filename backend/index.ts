@@ -1,13 +1,13 @@
 import express from 'express';
 import cors from 'cors';
 import { config } from './src/config/index.js';
-import { db, closeDb } from './src/db/index.js';
+import { closeDb } from './src/db/index.js';
 import { errorHandler, notFoundHandler } from './src/middleware/index.js';
 import { createDeploymentRouter, createHealthRouter } from './src/routes/index.js';
 
 const app = express();
 
-app.use(cors());
+app.use(cors({ origin: config.CORS_ORIGIN || '*' }));
 app.use(express.json());
 
 app.use('/health', createHealthRouter());

@@ -1,0 +1,103 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { DeploymentService } from '../deployment.service.js';
+import { deploymentRepository } from '../../repositories/index.js';
+import { pipelineService } from '../../services/pipeline.service.js';
+vi.mock('../../repositories/index.js', () => ({
+    deploymentRepository: {
+        findAll: vi.fn(),
+        findById: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+        delete: vi.fn(),
+        getLogs: vi.fn(),
+        addLog: vi.fn(),
+    },
+}));
+vi.mock('../../services/pipeline.service.js', () => ({
+    pipelineService: {
+        buildFromGitUrl: vi.fn(),
+        buildFromDirectory: vi.fn(),
+        runContainer: vi.fn(),
+        stopContainer: vi.fn(),
+    },
+}));
+vi.mock('../../services/log-emitter.service.js', () => ({
+    logEmitterService: {
+        emitLog: vi.fn(),
+        subscribe: vi.fn(() => () => { }),
+        getExistingLogs: vi.fn(() => []),
+    },
+}));
+describe('DeploymentService', () => {
+    let service;
+    beforeEach(() => {
+        vi.clearAllMocks();
+        service = new DeploymentService();
+    });
+    describe('getAllDeployments', () => {
+        it('should return all deployments from the repository', () => {
+            const mockDeployments = [{ id: '1', name: 'app' }];
+            vi.mocked(deploymentRepository.findAll).mockReturnValue(mockDeployments);
+            const result = service.getAllDeployments();
+            expect(deploymentRepository.findAll).toHaveBeenCalled();
+            expect(result).toEqual(mockDeployments);
+        });
+    });
+    describe('getDeploymentById', () => {
+        it('should return a deployment by id', () => {
+            const mockDeployment = { id: '1', name: 'app' };
+            vi.mocked(deploymentRepository.findById).mockReturnValue(mockDeployment);
+            const result = service.getDeploymentById('1');
+            expect(deploymentRepository.findById).toHaveBeenCalledWith('1');
+            expect(result).toEqual(mockDeployment);
+        });
+    });
+    describe('createDeployment', () => {
+        it('should extract name from gitUrl if not provided', () => {
+            const mockDeployment = { id: '1', name: 'my-repo', gitUrl: 'https://github.com/user/my-repo.git' };
+            vi.mocked(deploymentRepository.create).mockReturnValue(mockDeployment);
+            vi.mocked(pipelineService.buildFromGitUrl).mockResolvedValue({ imageTag: 'test:v1' });
+            vi.mocked(pipelineService.runContainer).mockResolvedValue({ port: 8080, liveUrl: '/deploy/1' });
+            const result = service.createDeployment({ gitUrl: 'https://github.com/user/my-repo.git', name: '' });
+            expect(deploymentRepository.create).toHaveBeenCalledWith({
+                name: 'my-repo',
+                gitUrl: 'https://github.com/user/my-repo.git',
+            });
+            expect(result).toEqual(mockDeployment);
+        });
+        it('should use provided name over gitUrl extraction', () => {
+            const mockDeployment = { id: '1', name: 'custom-name', gitUrl: 'https://github.com/user/my-repo.git' };
+            vi.mocked(deploymentRepository.create).mockReturnValue(mockDeployment);
+            vi.mocked(pipelineService.buildFromGitUrl).mockResolvedValue({ imageTag: 'test:v1' });
+            vi.mocked(pipelineService.runContainer).mockResolvedValue({ port: 8080, liveUrl: '/deploy/1' });
+            const result = service.createDeployment({ gitUrl: 'https://github.com/user/my-repo.git', name: 'custom-name' });
+            expect(deploymentRepository.create).toHaveBeenCalledWith({
+                name: 'custom-name',
+                gitUrl: 'https://github.com/user/my-repo.git',
+            });
+        });
+    });
+    describe('updateDeploymentStatus', () => {
+        it('should update status', () => {
+            const mockDeployment = { id: '1', status: 'building' };
+            vi.mocked(deploymentRepository.update).mockReturnValue(mockDeployment);
+            const result = service.updateDeploymentStatus('1', 'building');
+            expect(deploymentRepository.update).toHaveBeenCalledWith('1', {
+                status: 'building',
+                imageTag: undefined,
+                liveUrl: undefined,
+            });
+            expect(result).toEqual(mockDeployment);
+        });
+    });
+    describe('deleteDeployment', () => {
+        it('should call repository delete and return result', () => {
+            vi.mocked(deploymentRepository.findById).mockReturnValue({ id: '1', status: 'running', containerId: 'abc123' });
+            vi.mocked(deploymentRepository.delete).mockReturnValue(true);
+            vi.mocked(pipelineService.stopContainer).mockResolvedValue(undefined);
+            const result = service.deleteDeployment('1');
+            expect(deploymentRepository.delete).toHaveBeenCalledWith('1');
+            expect(result).toBe(true);
+        });
+    });
+});

@@ -6,6 +6,8 @@ export const deployments = sqliteTable('deployments', {
     status: text('status', { enum: ['pending', 'building', 'deploying', 'running', 'failed'] }).notNull().default('pending'),
     imageTag: text('imageTag'),
     liveUrl: text('liveUrl'),
+    containerId: text('containerId'),
+    port: integer('port'),
     createdAt: integer('createdAt', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
     updatedAt: integer('updatedAt', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
